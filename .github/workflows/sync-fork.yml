@@ -1,0 +1,34 @@
+name: Sync Fork Upstream Auto-Renew-HidenCloud
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # UTC0点 = 北京时间早上8点
+  workflow_dispatch: # 网页手动触发
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync fork with upstream eooce/Auto-Renew-HidenCloud
+        uses: aormsby/Fork-Sync-With-Upstream-action@v2.4
+        with:
+          upstream_repository: "eooce/Auto-Renew-HidenCloud"
+          upstream_branch: "main"
+          target_branch: "main"
+          git_pull_args: "--force" # 强制覆盖，不再安全模式
+
+      - name: Telegram Notify Success
+        if: success()
+        uses: cbrgm/telegram-github-action@v1
+        with:
+          token: ${{ secrets.TG_BOT_TOKEN }}
+          to: ${{ secrets.TG_CHAT_ID }}
+          message: "✅ Fork同步成功\n仓库：Auto-Renew-HidenCloud\n时间：北京时间08:00定时同步\nAction运行链接：${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      - name: Telegram Notify Failed
+        if: failure()
+        uses: cbrgm/telegram-github-action@v1
+        with:
+          token: ${{ secrets.TG_BOT_TOKEN }}
+          to: ${{ secrets.TG_CHAT_ID }}
+          message: "🔴 Fork同步失败\n仓库：Auto-Renew-HidenCloud\n时间：北京时间08:00定时同步\n请查看日志：${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
