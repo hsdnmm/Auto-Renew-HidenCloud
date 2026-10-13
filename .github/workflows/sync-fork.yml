@@ -3,19 +3,25 @@ name: Sync Fork Upstream Auto-Renew-HidenCloud
 on:
   schedule:
     - cron: '0 0 * * *' # UTC0点 = 北京时间早上8点
-  workflow_dispatch: # 网页手动触发
+  workflow_dispatch:
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
+      # 拉取fork仓库代码，修复 not a git repository 报错
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Sync fork with upstream eooce/Auto-Renew-HidenCloud
         uses: aormsby/Fork-Sync-With-Upstream-action@v2.4
         with:
           upstream_repository: "eooce/Auto-Renew-HidenCloud"
           upstream_branch: "main"
           target_branch: "main"
-          git_pull_args: "--force" # 强制覆盖，不再安全模式
+          git_pull_args: "--force" # 强制覆盖fork分支
 
       - name: Telegram Notify Success
         if: success()
