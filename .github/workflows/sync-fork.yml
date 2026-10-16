@@ -2,7 +2,7 @@ name: Sync Fork Upstream Auto-Renew-HidenCloud
 
 on:
   schedule:
-    - cron: '0 0 * * *' # UTC0点 = 北京时间早上8点
+    - cron: '0 0 * * 1' # UTC0点 = 北京时间早上8点
   workflow_dispatch:
 
 jobs:
