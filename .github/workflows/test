@@ -1,0 +1,72 @@
+name: 自动同步上游 + 强制覆盖renew.yml cron + TG告警
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 15 * * 2' # 每周二下午3点同步上游
+jobs:
+  sync-upstream:
+    runs-on: ubuntu-latest
+    env:
+      TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+      TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+      TARGET_CRON: "0 23 * * 2"
+    steps:
+      - name: Checkout 使用自定义PAT（重点！）
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.MY_PAT }} # 这里替换为你的PAT
+
+      - name: 配置git+添加上游
+        run: |
+          git config --global user.name "hsdnmm"
+          git config --global user.email "hsdnmm@users.noreply.github.com"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if ! git remote | grep -q upstream; then
+            git remote add upstream https://github.com/eooce/Auto-Renew-HidenCloud.git
+          fi
+          git fetch upstream main
+
+      - name: 合并上游代码
+        run: |
+          git merge upstream/main || true
+
+      # 强制替换renew.yml内所有cron行为周二23点
+      - name: 强制覆盖renew.yml cron
+        run: |
+          sed -i "s/.*- cron:.*/    - cron: '0 23 * * 2' #强制覆盖为每周二晚23点续期/" .github/workflows/renew.yml
+
+      - name: 校验cron
+        run: |
+          ALL_CRON=$(grep '\- cron:' .github/workflows/renew.yml | awk -F"'" '{print $2}')
+          echo "$ALL_CRON" | while read line;do
+            if [ "$line" != "$TARGET_CRON" ];then
+              echo "❌ 错误，cron不对：$line"
+              exit 1
+            fi
+          done
+          echo "✅ cron校验成功"
+
+      - name: 提交推送
+        run: |
+          git add .
+          if git diff --cached --quiet;then
+            echo "✅ 无变更，跳过提交"
+          else
+            git commit -m "🤖同步上游并固定renew.yml定时为周二23点"
+            git push origin main
+          fi
+
+      - name: ✅成功通知
+        if: success()
+        run: |
+          curl -s -X POST https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage \
+          -d chat_id=${TG_CHAT_ID} \
+          -d text="🤖上游同步成功✅\nrenew.yml已固定为每周二23点执行续期"
+
+      - name: ❌失败告警
+        if: failure()
+        run: |
+          curl -s -X POST https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage \
+          -d chat_id=${TG_CHAT_ID} \
+          -d text="⚠️同步任务失败，请检查"
