@@ -19,7 +19,6 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GH_PAT }}  # 使用拥有 workflow 权限的私人 Token
 
-steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
