@@ -37,7 +37,7 @@ jobs:
 
       - name: 配置git+添加上游
         run: |
-          git remote add upstream https://github.com/上游作者名/Auto-Renew-HidenCloud.git
+          git remote add upstream https://github.com/eooce/Auto-Renew-HidenCloud.git
           git fetch upstream
       # --------------------------------------------------
 
