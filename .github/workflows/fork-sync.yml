@@ -1,0 +1,78 @@
+name: 自动同步上游 + 修复cron + TG告警
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * 3' # 每周三凌晨2点自动同步上游，和周二23:30续期错开，避免并发冲突
+
+jobs:
+  sync-upstream:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+      TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+      TARGET_CRON: "30 23 * * 2"
+    steps:
+      - name: Checkout your repo
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/eooce/Auto-Renew-HidenCloud.git
+          git fetch upstream main
+
+      - name: Merge upstream main
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git merge upstream/main || true
+
+      - name: 自动替换renew.yml的cron为每周二 30 23 * * 2
+        run: |
+          sed -i '/- cron:/c\    - cron: '\''30 23 * * 2'\'' #每周二23:30执行' .github/workflows/renew.yml
+
+      - name: 校验cron是否替换成功
+        run: |
+          # 提取cron表达式
+          REAL_CRON=$(grep '\- cron:' .github/workflows/renew.yml | head -n1 | awk -F"'" '{print $2}')
+          echo "读取到的cron: $REAL_CRON"
+          echo "预期cron: $TARGET_CRON"
+          if [ "$REAL_CRON" != "$TARGET_CRON" ];then
+            echo "❌ Cron替换失败！"
+            exit 1
+          fi
+          echo "✅ Cron校验通过"
+
+      - name: 提交更新
+        run: |
+          git add .
+          if git diff --cached --quiet; then
+            echo "✅无更新，无需提交"
+          else
+            git commit -m "🤖自动同步上游并修复cron"
+            git push origin main
+          fi
+
+      - name: ✅TG推送【同步成功通知】
+        if: success()
+        run: |
+          curl -s -X POST https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage \
+            -d chat_id=${TG_CHAT_ID} \
+            -d text="🤖Fork同步任务成功！
+✅已拉取上游更新
+✅Cron校验通过，定时：每周二23:30"
+
+      - name: ❌TG推送【同步失败告警】
+        if: failure()
+        run: |
+          curl -s -X POST https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage \
+            -d chat_id=${TG_CHAT_ID} \
+            -d text="⚠️Fork上游同步任务失败！
+可能原因：
+1. Git合并冲突
+2. cron替换失败，sed匹配失效
+请手动登录Github仓库检查renew.yml"
