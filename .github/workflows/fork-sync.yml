@@ -2,7 +2,7 @@ name: 自动同步上游 + 修复cron + TG告警
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 2 * * 3' # 每周三凌晨2点自动同步上游，和周二23:30续期错开，避免并发冲突
+    - cron: '0 20 * * 2' # 每周三凌晨2点自动同步上游，和周二23:30续期错开，避免并发冲突
 
 jobs:
   sync-upstream:
