@@ -50,7 +50,9 @@ jobs:
             echo "无变更，跳过提交"
           else
             git commit -m "🤖自动同步上游 + 续期时间固定为周二23:00"
-            git push origin main
+            
+            # 💡 核心修改：直接在 push 命令中带上 PAT 进行鉴权，不依赖全局 remote url
+            git push https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}.git main
           fi
 
       - name: ✅ 成功通知
