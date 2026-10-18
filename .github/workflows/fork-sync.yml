@@ -1,9 +1,8 @@
-name: 自动同步上游 + 修复cron + TG告警
+name: 自动同步上游 + 强制覆盖cron + TG告警
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 15 * * 2' # 每周三凌晨2点自动同步上游，和周二23:30续期错开，避免并发冲突
-
+    - cron: '0 15 * * 2' # 每周二下午3点自动同步上游
 jobs:
   sync-upstream:
     runs-on: ubuntu-latest
@@ -12,63 +11,66 @@ jobs:
     env:
       TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
       TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-      TARGET_CRON: "30 23 * * 2"
+      TARGET_CRON: "0 23 * * 2" # 续期任务目标时间：周二晚23点
     steps:
-      - name: Checkout your repo
+      - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Add upstream remote（不存在才添加）
+      - name: 配置git+添加上游
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           if ! git remote | grep -q upstream; then
             git remote add upstream https://github.com/eooce/Auto-Renew-HidenCloud.git
           fi
           git fetch upstream main
 
-      - name: Merge upstream main
+      - name: 合并上游代码
         run: |
           git merge upstream/main || true
 
-      - name: 自动替换renew.yml的cron为每周二 30 23 * * 2
+      # 核心：不管上游原来cron写的是什么，全部强制改成周二晚23点
+      - name: 强制覆盖renew.yml的所有cron行
         run: |
-          sed -i '/- cron:/c\    - cron: '\''30 23 * * 2'\'' #每周二23:30执行' .github/workflows/renew.yml
+          sed -i "s/.*- cron:.*/    - cron: '0 23 * * 2' #强制覆盖为每周二晚23点续期/" .github/workflows/renew.yml
 
-      - name: 校验cron是否替换成功
+      - name: 校验cron是否全部替换成功
         run: |
-          # 提取cron表达式
-          REAL_CRON=$(grep '\- cron:' .github/workflows/renew.yml | head -n1 | awk -F"'" '{print $2}')
-          echo "读取到的cron: $REAL_CRON"
-          echo "预期cron: $TARGET_CRON"
-          if [ "$REAL_CRON" != "$TARGET_CRON" ];then
-            echo "❌ Cron替换失败！"
-            exit 1
-          fi
-          echo "✅ Cron校验通过"
+          ALL_CRON=$(grep '\- cron:' .github/workflows/renew.yml | awk -F"'" '{print $2}')
+          echo "当前renew.yml内所有cron值："
+          echo "$ALL_CRON"
+          echo "$ALL_CRON" | while read line; do
+            if [ "$line" != "$TARGET_CRON" ]; then
+              echo "❌ 发现异常cron: $line"
+              exit 1
+            fi
+          done
+          echo "✅ 全部cron校验通过：每周二晚23点续期"
 
-      - name: 提交更新
+      - name: 提交并推送
         run: |
           git add .
           if git diff --cached --quiet; then
-            echo "✅无更新，无需提交"
+            echo "无变更，跳过提交"
           else
-            git commit -m "🤖自动同步上游并修复cron"
+            git commit -m "🤖自动同步上游+续期时间固定为周二23:00"
             git push origin main
           fi
 
-      - name: ✅TG推送【同步成功通知】
+      - name: ✅成功通知
         if: success()
         run: |
           curl -s -X POST https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage \
           -d chat_id=${TG_CHAT_ID} \
-          -d text="🤖Fork同步任务成功！%0A✅已拉取上游更新%0A✅Cron校验通过，定时：每周二23:30"
+          -d text="🤖Fork同步成功%0A✅上游代码已更新%0A✅续期定时已固定：每周二晚23:00"
 
-      - name: ❌TG推送【同步失败告警】
+      - name: ❌失败告警
         if: failure()
         run: |
           curl -s -X POST https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage \
           -d chat_id=${TG_CHAT_ID} \
-          -d text="⚠️Fork上游同步任务失败！%0A可能原因：%0A1. Git合并冲突%0A2. cron替换失败，sed匹配失效%0A请手动登录Github仓库检查renew.yml"
+          -d text="⚠️Fork同步失败%0A请检查：1.git权限 2.合并冲突 3.替换脚本"
