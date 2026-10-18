@@ -16,7 +16,7 @@ jobs:
       - name: 同步上游代码
         uses: dabreadman/sync-repo-git@v1
         with:
-          source_url: "https://github.com/上游作者名/Auto-Renew-HidenCloud.git"
+          source_url: "https://github.com/eooce/Auto-Renew-HidenCloud.git"
           source_branch: "main"
           target_branch: "main"
           # 💡 核心保护：在这里排除 renew.yml，不让上游或同步动作覆盖您自己改好的时间文件！
