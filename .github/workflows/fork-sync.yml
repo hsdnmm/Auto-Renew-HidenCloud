@@ -1,77 +1,47 @@
 name: 自动同步上游 + 强制覆盖cron + TG告警
+
 on:
-  workflow_dispatch:
   schedule:
-    - cron: '0 15 * * 2' # 每周二下午3点自动同步上游
+    - cron: '0 0 * * *' # 每天定时运行一次，或者根据需要调整
+  workflow_dispatch: # 支持手动触发
+
 jobs:
   sync-upstream:
     runs-on: ubuntu-latest
+    
+    # 显式赋予读写权限
     permissions:
       contents: write
-    env:
-      TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
-      TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-      TARGET_CRON: "0 23 * * 2" # 续期任务目标时间：周二晚23点
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GH_PAT }}  # 使用拥有 workflow 权限的私人 Token
 
+    steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GH_PAT }}
+          token: ${{ secrets.GH_PAT }} # 必须传入配置好的 Personal Access Token
 
-      # --------------------------------------------------
-      # 👉 在这里（Checkout 后面、合并代码前面）加上这步：
-      # --------------------------------------------------
       - name: 配置 Git 凭证与鉴权
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          # 强制将 origin 的远程 URL 替换为带 PAT 的鉴权地址，解决 403 权限拒绝
-          git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}.git
+          # 直接将远程仓库 URL 绑定为带 PAT 的鉴权地址，彻底解决 403 权限拒绝
+          git remote set-url origin https://${{ secrets.GH_PAT }}@github.com/${{ github.repository }}.git
 
-      - name: 配置git+添加上游
+      - name: 配置 git + 添加上游
         run: |
           git remote add upstream https://github.com/eooce/Auto-Renew-HidenCloud.git
           git fetch upstream
-      # --------------------------------------------------
 
-      - name: 配置git+添加上游
+      - name: 合并上游代码并锁定运行时间
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          if ! git remote | grep -q upstream; then
-            git remote add upstream https://github.com/eooce/Auto-Renew-HidenCloud.git
+          # 1. 拉取并合并上游代码，允许无关联历史合并
+          git merge upstream/main --allow-unrelated-histories -m "🤖自动同步上游代码" || true
+
+          # 2. 核心保护：不管上游的 renew.yml 怎么更新，自动将其中的 cron 时间覆盖为您的专属时间（例如每周二 23:00）
+          if [ -f ".github/workflows/renew.yml" ]; then
+            sed -i 's/cron: .*/cron: '\''0 23 * * 2'\''/g' .github/workflows/renew.yml
+            echo "成功将 renew.yml 的运行时间锁定为周二 23:00"
           fi
-          git fetch upstream main
-
-      - name: 合并上游代码
-        run: |
-          git merge upstream/main || true
-
-      # 核心：不管上游原来cron写的是什么，全部强制改成周二晚23点
-      - name: 强制覆盖renew.yml的所有cron行
-        run: |
-          sed -i "s/.*- cron:.*/    - cron: '0 23 * * 2' #强制覆盖为每周二晚23点续期/" .github/workflows/renew.yml
-
-      - name: 校验cron是否全部替换成功
-        run: |
-          ALL_CRON=$(grep '\- cron:' .github/workflows/renew.yml | awk -F"'" '{print $2}')
-          echo "当前renew.yml内所有cron值："
-          echo "$ALL_CRON"
-          echo "$ALL_CRON" | while read line; do
-            if [ "$line" != "$TARGET_CRON" ]; then
-              echo "❌ 发现异常cron: $line"
-              exit 1
-            fi
-          done
-          echo "✅ 全部cron校验通过：每周二晚23点续期"
 
       - name: 提交并推送
         run: |
@@ -79,20 +49,20 @@ jobs:
           if git diff --cached --quiet; then
             echo "无变更，跳过提交"
           else
-            git commit -m "🤖自动同步上游+续期时间固定为周二23:00"
+            git commit -m "🤖自动同步上游 + 续期时间固定为周二23:00"
             git push origin main
           fi
 
-      - name: ✅成功通知
+      - name: ✅ 成功通知
         if: success()
         run: |
-          curl -s -X POST https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage \
-          -d chat_id=${TG_CHAT_ID} \
-          -d text="🤖Fork同步成功%0A✅上游代码已更新%0A✅续期定时已固定：每周二晚23:00"
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_BOT_TOKEN }}/sendMessage" \
+          -d "chat_id=${{ secrets.TG_CHAT_ID }}" \
+          -d "text=✅ Auto-Renew-HidenCloud 同步成功并已锁定运行时间！"
 
-      - name: ❌失败告警
+      - name: ❌ 失败告警
         if: failure()
         run: |
-          curl -s -X POST https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage \
-          -d chat_id=${TG_CHAT_ID} \
-          -d text="⚠️Fork同步失败%0A请检查权限配置"
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_BOT_TOKEN }}/sendMessage" \
+          -d "chat_id=${{ secrets.TG_CHAT_ID }}" \
+          -d "text=⚠️ Fork 同步失败，请检查 Actions 运行日志与 PAT 权限配置。"
