@@ -1,9 +1,9 @@
-name: 自动同步上游 + 强制覆盖cron + TG告警
+name: 自动同步上游 + TG告警
 
 on:
   schedule:
-    - cron: '0 15 * * 2' # 每天定时运行一次，或者根据需要调整
-  workflow_dispatch: # 支持手动触发
+    - cron: '0 15 * * 2'
+  workflow_dispatch:
 
 jobs:
   sync-upstream:
@@ -12,55 +12,28 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: 同步上游代码
+        uses: dabreadman/sync-repo-git@v1
         with:
-          fetch-depth: 0
-          token: ${{ secrets.GH_PAT }} # 必须传入配置好的 Personal Access Token
-
-      - name: 配置 Git 凭证与鉴权
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          # 直接将远程仓库 URL 绑定为带 PAT 的鉴权地址，彻底解决 403 权限拒绝
-          git remote set-url origin https://${{ secrets.GH_PAT }}@github.com/${{ github.repository }}.git
-
-      - name: 配置 git + 添加上游
-        run: |
-          git remote add upstream https://github.com/eooce/Auto-Renew-HidenCloud.git
-          git fetch upstream
-
-      - name: 合并上游代码并锁定运行时间
-        run: |
-          # 1. 拉取并合并上游代码，允许无关联历史合并
-          git merge upstream/main --allow-unrelated-histories -m "🤖自动同步上游代码" || true
-
-          # 2. 核心保护：不管上游的 renew.yml 怎么更新，自动将其中的 cron 时间覆盖为您的专属时间（例如每周二 23:00）
-          if [ -f ".github/workflows/renew.yml" ]; then
-            sed -i 's/cron: .*/cron: '\''0 23 * * 2'\''/g' .github/workflows/renew.yml
-            echo "成功将 renew.yml 的运行时间锁定为周二 23:00"
-          fi
-
-      - name: 提交并推送
-        run: |
-          git add .
-          if git diff --cached --quiet; then
-            echo "无变更，跳过提交"
-          else
-            git commit -m "🤖自动同步上游 + 续期时间固定为周二23:00"
-            
-            # 使用全局配置好的远程 URL 直接推送
-            git push origin main
-          fi
+          source_url: "https://github.com/上游作者名/Auto-Renew-HidenCloud.git"
+          source_branch: "main"
+          target_branch: "main"
+          # 💡 核心保护：在这里排除 renew.yml，不让上游或同步动作覆盖您自己改好的时间文件！
+          exclude: |
+            .github/workflows/renew.yml
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: ✅ 成功通知
         if: success()
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_BOT_TOKEN }}/sendMessage" \
           -d "chat_id=${{ secrets.TG_CHAT_ID }}" \
-          -d "text=✅ Auto-Renew-HidenCloud 同步成功并已锁定运行时间！"
+          -d "text=✅ Auto-Renew-HidenCloud 上游同步成功！"
 
       - name: ❌ 失败告警
         if: failure()
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_BOT_TOKEN }}/sendMessage" \
           -d "chat_id=${{ secrets.TG_CHAT_ID }}" \
-          -d "text=⚠️ Fork 同步失败，请检查 Actions 运行日志与 PAT 权限配置。"
+          -d "text=⚠️ 同步失败，请检查日志。"
