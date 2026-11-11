@@ -29,7 +29,11 @@ jobs:
 
       - name: 合并上游代码
         run: |
-          git merge upstream/main || true
+          git merge -X theirs upstream/main || {
+            git checkout --theirs .
+            git add .
+            GIT_EDITOR=true git merge --continue
+          }
 
       # 强制替换renew.yml内所有cron行为周二23点
       - name: 强制覆盖renew.yml cron
